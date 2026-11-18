@@ -1,9 +1,11 @@
-"""Python logging → ROS topic 桥接 —— 把 agent 日志发到 ROS,可录 rosbag 回放调试。
+"""Bridge Python logging to a ROS topic for rosbag capture and replay.
 
-框架侧:ros_source 在 node 就绪后调 install(node),把 handler 装到 root logger。
-开发机无 ROS 时不装,log 继续走平台 logger,不影响。
+On the framework side, ros_source calls ``install(node)`` once the node is
+ready, attaching the handler to the root logger. Without ROS, the handler is
+not installed and logs continue through the platform logger.
 
-话题:/soccer/agent_log,类型 rcl_interfaces/msg/Log(ROS 标准 log 消息,Studio 原生支持)。
+Topic: /soccer/agent_log. Type: rcl_interfaces/msg/Log, the standard ROS log
+message supported natively by Studio.
 """
 
 from __future__ import annotations
@@ -16,17 +18,17 @@ _TOPIC = "/soccer/agent_log"
 
 
 def install(node) -> None:
-    """把 ROS log publisher 装到 Python root logger(Docker-only)。"""
+    """Attach the ROS log publisher to the Python root logger (Docker only)."""
     try:
         handler = _RosLogHandler(node)
-        # 装到 root logger,捕获所有模块;级别继承 root(默认 INFO)
+        # Capture all modules and inherit the root logger's level (INFO by default).
         logging.getLogger().addHandler(handler)
         _log.info("log_publisher installed, publishing to %s", _TOPIC)
     except Exception as exc:
         _log.warning("log_publisher install failed (ROS log disabled): %s", exc)
 
 
-# logging level → ROS Log 常量映射
+# Map Python logging levels to ROS Log constants.
 _LEVEL_MAP = {
     logging.DEBUG: 10,     # Log.DEBUG
     logging.INFO: 20,      # Log.INFO
@@ -37,14 +39,14 @@ _LEVEL_MAP = {
 
 
 class _RosLogHandler(logging.Handler):
-    """logging.Handler:把 LogRecord 转成 rcl_interfaces/msg/Log 发到 /rosout。"""
+    """Convert LogRecord instances to rcl_interfaces/msg/Log on /rosout."""
 
     def __init__(self, node) -> None:
         super().__init__()
         from rcl_interfaces.msg import Log
         from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 
-        # /rosout 标准 QoS:TRANSIENT_LOCAL + RELIABLE,history=1000
+        # Standard /rosout QoS: TRANSIENT_LOCAL, RELIABLE, history depth 1000.
         qos = QoSProfile(
             depth=1000,
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -54,13 +56,13 @@ class _RosLogHandler(logging.Handler):
         self._pub = node.create_publisher(Log, _TOPIC, qos)
 
     def emit(self, record: logging.LogRecord) -> None:
-        """转成 ROS Log 消息发到 /rosout。异常不能再 log(递归),直接吞。"""
+        """Publish a ROS Log message to /rosout, suppressing recursive errors."""
         try:
             from rcl_interfaces.msg import Log
 
             msg = Log()
             msg.stamp = self._node.get_clock().now().to_msg()
-            msg.level = _LEVEL_MAP.get(record.levelno, 20)  # 默认 INFO
+            msg.level = _LEVEL_MAP.get(record.levelno, 20)  # Default to INFO.
             msg.name = record.name
             msg.msg = record.getMessage()
             msg.file = record.pathname
@@ -68,4 +70,4 @@ class _RosLogHandler(logging.Handler):
             msg.line = record.lineno
             self._pub.publish(msg)
         except Exception:
-            pass  # 不能再调 logging(递归),直接吞异常
+            pass  # Logging here would recurse, so suppress the exception.

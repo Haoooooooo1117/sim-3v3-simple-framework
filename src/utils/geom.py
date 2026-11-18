@@ -1,9 +1,11 @@
-"""几何 helper —— 纯函数,无状态,吃 Context / 坐标。
+"""Stateless geometry helpers operating on Context or coordinates.
 
-【utils】框架预置的工具样例,用户可读可改可 fork,也可在本目录加自己的 util
-(如"球是否出界")。放这里是因为这些计算换打法不变,且被 nav / 策略复用。
+These framework-provided examples can be read, changed, or forked. Users can
+also add utilities such as out-of-bounds checks. These calculations remain
+valid across strategies and are shared by navigation and strategy code.
 
-坐标系:队伍场地视角,+x 朝对方球门,-x 朝己方球门,场地中心 (0,0)。
+Coordinate system: team-relative field view, +x toward the opponent's goal,
+-x toward our goal, with the field center at (0, 0).
 """
 
 from __future__ import annotations
@@ -23,12 +25,12 @@ def normalize_angle(a: float) -> float:
 
 
 def deg2rad(deg: float) -> float:
-    """角度制转弧度制。"""
+    """Convert degrees to radians."""
     return math.radians(deg)
 
 
 def rad2deg(rad: float) -> float:
-    """弧度制转角度制。"""
+    """Convert radians to degrees."""
     return math.degrees(rad)
 
 
@@ -37,24 +39,25 @@ def dist(ax: float, ay: float, bx: float, by: float) -> float:
 
 
 def angle_to(fx: float, fy: float, tx: float, ty: float) -> float:
-    """从 (fx,fy) 指向 (tx,ty) 的场地角度。"""
+    """Return the field-relative angle from (fx, fy) to (tx, ty)."""
     return math.atan2(ty - fy, tx - fx)
 
 
 def opponent_goal(ctx: Context) -> tuple[float, float]:
-    """对方球门中心(进攻目标),取门线后方一点避免球压线时反向瞄准。"""
+    """Return a point behind the opponent's goal line for stable aiming."""
     return (ctx.field.length / 2.0 + GOAL_TARGET_DEPTH_M, 0.0)
 
 
 def own_goal(ctx: Context) -> tuple[float, float]:
-    """己方球门中心(防守核心)。"""
+    """Return the center of our goal, the defensive reference point."""
     return (-ctx.field.length / 2.0, 0.0)
 
 
 def own_goal_area_center(ctx: Context) -> tuple[float, float]:
-    """己方小禁区(球门区)中心 —— 守门员无威胁时的默认站位。
+    """Return the default goalkeeper position at our goal-area center.
 
-    小禁区从己方门线沿 +x 伸进 ``goal_area_length``,中心在门线内侧半个进深处。
+    The goal area extends ``goal_area_length`` along +x from our goal line, so
+    its center lies half that distance inside the field.
     """
     return (-ctx.field.length / 2.0 + ctx.field.goal_area_length / 2.0, 0.0)
 
@@ -62,7 +65,7 @@ def own_goal_area_center(ctx: Context) -> tuple[float, float]:
 def clamp_inside_field(
     ctx: Context, x: float, y: float, margin: float = 2.0,
 ) -> tuple[float, float]:
-    """把 (x,y) 夹进场地矩形内(留 margin 余量)。"""
+    """Clamp (x, y) inside the rectangular field with the given margin."""
     half_l = ctx.field.length / 2.0 - margin
     half_w = ctx.field.width / 2.0 - margin
     return (clamp(x, -half_l, half_l), clamp(y, -half_w, half_w))

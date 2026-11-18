@@ -1,14 +1,15 @@
-"""SoccerAgent 框架 mixin:用户入口类的框架行为来源。
+"""SoccerAgent mixin providing framework behavior to the user's entry class.
 
-平台约束:Booster 构建校验只认入口类的【直接基类】是否为
-``booster_agent_framework.AgentBase``,不追溯多层继承。因此框架不能提供一个
-``SoccerAgent(AgentBase)`` 让用户单继承——那样用户类的直接基类是 SoccerAgent,
-校验不过。
+Booster build validation requires ``booster_agent_framework.AgentBase`` to be
+a direct base of the entry class and does not follow indirect inheritance.
+Consequently, the framework cannot provide ``SoccerAgent(AgentBase)`` as the
+only user base because SoccerAgent, rather than AgentBase, would be direct.
 
-解法:框架行为放在【不继承 AgentBase】的 mixin 里,用户入口类写成
-``class MyAgent(SoccerAgentMixin, AgentBase)``,让 AgentBase 成为直接基类之一。
+The solution is to place framework behavior in a mixin that does not inherit
+AgentBase. User entry classes declare
+``class MyAgent(SoccerAgentMixin, AgentBase)`` so AgentBase remains direct.
 
-详细 API 见 docs/new_design.md 第 8 节。
+See section 8 of docs/new_design.md for the detailed API.
 """
 
 from __future__ import annotations
@@ -35,13 +36,15 @@ _log = logging.getLogger(__name__)
 
 
 class _PlatformLogHandler(logging.Handler):
-    """把 Python 标准 logging 记录转发到 Booster 平台 logger(``self.logger``)。
+    """Forward standard Python logging records to the Booster platform logger.
 
-    平台 logger 是 rclcpp 风格,只有 ``.info/.warn/.error(msg: str)``。标准
-    logging 默认无 handler、INFO 被丢弃,所以框架和用户代码的日志都看不到;装上
-    这个桥后,``logging.getLogger(__name__).info(...)`` 会正确路由到控制台/日志文件。
+    The rclcpp-style platform logger only exposes ``.info``, ``.warn``, and
+    ``.error`` methods. Standard logging has no handler by default and drops
+    INFO records. This bridge routes framework and user logs to the console and
+    log files correctly.
 
-    平台耦合只集中在这里;runtime / player 等仍用平台无关的标准 logging。
+    Platform coupling is isolated here; runtime and player continue to use
+    platform-independent standard logging.
     """
 
     def __init__(self, platform_logger: object) -> None:
@@ -65,9 +68,9 @@ class _PlatformLogHandler(logging.Handler):
 
 
 class SoccerAgentMixin:
-    """框架行为 mixin;不继承 AgentBase,须与 AgentBase 组合。
+    """Framework behavior mixin used alongside, but not derived from, AgentBase.
 
-    用法::
+    Usage::
 
         from booster_agent_framework import AgentBase
         from .soccer.agent import SoccerAgentMixin
@@ -80,46 +83,46 @@ class SoccerAgentMixin:
 
             def init_store(self, store): ...
 
-    MRO 为 ``[MyAgent, SoccerAgentMixin, AgentBase, object]``,``super().__init__``
-    会正确走到 ``AgentBase.__init__``。
+    The MRO is ``[MyAgent, SoccerAgentMixin, AgentBase, object]``, so
+    ``super().__init__`` correctly reaches ``AgentBase.__init__``.
     """
 
     # ------------------------------------------------------------------
-    # 用户填的槽
+    # User-provided hooks
     # ------------------------------------------------------------------
 
-    # 槽 1:Player 类。main.py 必须设置 ``player_class = Player``(从 src.player 导入)。
-    #       框架不 import 用户的 player.py,依赖注入保持依赖向下。
+    # Hook 1: Player class. main.py must set ``player_class = Player`` from
+    # src.player. The framework injects it instead of importing user player.py.
     player_class: "type[Player]"
 
-    # 槽 2:play —— 每帧调用(默认 no-op)
+    # Hook 2: play, called every frame and a no-op by default.
     @staticmethod
     def play(
         context: "Context",
         players: "list[Player]",
         store: "SimpleNamespace",
     ) -> None:
-        """30Hz 调用。默认啥都不做;子类按需 override。"""
+        """Run at 30 Hz. Subclasses may override this default no-op."""
 
-    # 槽 3:init_store —— 开赛前调一次(可选)
+    # Hook 3: optional init_store, called once before the match.
     def init_store(self, store: "SimpleNamespace") -> None:
-        """默认 no-op;子类按需 override。"""
+        """Subclasses may override this default no-op."""
 
     # ------------------------------------------------------------------
-    # 框架内部 —— 用户通常不改
+    # Framework internals; users normally do not modify these
     # ------------------------------------------------------------------
 
     def __init__(self) -> None:
-        # 走 MRO 到 AgentBase.__init__(AgentFeatures())
+        # Follow the MRO to AgentBase.__init__(AgentFeatures()).
         super().__init__(AgentFeatures())  # type: ignore[call-arg]
         self._setup_logging()
         self.config = SoccerConfig.from_env()
-        # ROS 数据源(Docker-only);延迟 import,避免开发机无 rclpy 时污染
+        # Delay the Docker-only ROS import so rclpy is not required for development.
         from .ros_source import RosContextSource
 
         source = RosContextSource(self.config)
         self.runtime = SoccerRuntime(self, context_source=source)
-        # 为每个 player 创建 backend(SDK 包装)并注入
+        # Create and inject an SDK backend for each player.
         self._create_backends()
         _log.info(
             "SoccerAgent initialized: team_id=%d robots=%s",
@@ -127,7 +130,7 @@ class SoccerAgentMixin:
         )
 
     def _create_backends(self) -> None:
-        """为每个 player 创建 SDK backend。Docker-only,延迟 import。"""
+        """Create each player's SDK backend through a delayed Docker-only import."""
         from .robot_backend import RobotBackend
 
         for player in self.runtime._players:
@@ -135,15 +138,16 @@ class SoccerAgentMixin:
             player._backend = RobotBackend(player.id, robot_name)
 
     def _setup_logging(self) -> None:
-        """把标准 logging 桥接到平台 logger,让框架和用户日志可见。
+        """Bridge standard logging to the platform logger.
 
-        ``self.logger`` 由 AgentBase 在 ``super().__init__`` 后提供。桥只装一次;
-        重复激活时先清掉旧桥避免重复输出。
+        AgentBase provides ``self.logger`` after ``super().__init__``. Install
+        the bridge once and remove an old bridge before repeated activation to
+        prevent duplicate output.
         """
 
         platform_logger = getattr(self, "logger", None)
         if platform_logger is None:
-            # 没有平台 logger(理论上不该发生):退回 stderr,std 流已被框架重定向。
+            # Fall back to stderr if the theoretically required logger is absent.
             logging.basicConfig(level=logging.INFO)
             return
         root = logging.getLogger()

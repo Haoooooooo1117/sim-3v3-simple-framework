@@ -1,4 +1,5 @@
-"""空 package 标记。
+"""Empty package marker.
 
-实际代码在 src/soccer/(框架内核)和 src/main.py(用户 Agent 入口)。
+The implementation lives in src/soccer/ (framework core) and src/main.py
+(user agent entry point).
 """

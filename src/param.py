@@ -1,7 +1,8 @@
-"""集中调参入口。
+"""Central configuration point for strategy tuning.
 
-这里放策略、走位、踢球和避障的可调参数。数值迁移自当前代码文件,
-以后优先在本文件调整参数。
+This module contains tunable strategy, movement, kicking, and obstacle
+avoidance parameters. Existing values were moved here from their original
+modules; make future parameter adjustments here first.
 """
 
 from __future__ import annotations
@@ -10,43 +11,43 @@ import math
 
 
 # ======================================================================
-# 踢球力度
+# Kick power
 # ======================================================================
 
-# Player.kick() 会把力度夹到这个范围内。如果超过范围，因为控制接口不支持，可能会摔倒。
+# Player.kick() clamps power to this range. Unsupported values may cause a fall.
 KICK_POWER_MIN = 1.0
 KICK_POWER_MAX = 10.0
 
-# 普通比赛踢球力度。
+# Kick power during normal play.
 KICK_POWER_DEFAULT = 5.0
 KICK_POWER_BACKFIELD = 5.0
 KICK_POWER_OUR_KICKOFF = 5.0
 
 
 # ======================================================================
-# Player 走位控制
+# Player movement control
 # ======================================================================
 
-ARRIVE_DIST = 0.15             # 到达目标点阈值 (m)
-OMNI_DIST = 1.0                # 距目标小于该值时使用全向近距控制
-TURN_THRESHOLD = 0.5           # 远距离行走时,角差超过该值先原地转向 (rad)
-MAX_LINEAR = 2.0               # 指令前进速度上限 (m/s)
-MAX_ANGULAR = 2.0              # 指令转向速度上限 (rad/s)
-LINEAR_GAIN = 1.5              # 平移 P 增益
-ANGULAR_GAIN = 2.0             # 转向 P 增益
-
-
-# ======================================================================
-# Player 踢球 / 射门规划
-# ======================================================================
-
-KICK_ENTER_M = 2.0             # 距球小于该值进入踢球状态
-KICK_EXIT_M = 2.5              # 踢球中距球大于该值才退出踢球状态
-CHASE_BEHIND_M = 0.35          # 追球时站到球后方的距离
+ARRIVE_DIST = 0.15             # Target arrival threshold (m)
+OMNI_DIST = 1.0                # Use omnidirectional control below this distance
+TURN_THRESHOLD = 0.5           # Turn in place above this heading error (rad)
+MAX_LINEAR = 2.0               # Maximum commanded forward speed (m/s)
+MAX_ANGULAR = 2.0              # Maximum commanded angular speed (rad/s)
+LINEAR_GAIN = 1.5              # Translation proportional gain
+ANGULAR_GAIN = 2.0             # Rotation proportional gain
 
 
 # ======================================================================
-# Player 技术动作参数：守门 / 支援 
+# Player kicking and shot planning
+# ======================================================================
+
+KICK_ENTER_M = 2.0             # Enter kicking state below this ball distance
+KICK_EXIT_M = 2.5              # Leave kicking state above this ball distance
+CHASE_BEHIND_M = 0.35          # Distance behind the ball while chasing
+
+
+# ======================================================================
+# Player skill parameters: guarding and support
 # ======================================================================
 
 GUARD_FACE_BALL = True
@@ -56,30 +57,34 @@ GUARD_THREAT_EXIT_X = -0.7
 SUPPORT_DIST_M = 3.0
 
 # ======================================================================
-# Normal 阶段策略
+# Normal-phase strategy
 # ======================================================================
 
-ATTACKER_KEEP_DIST_MARGIN_M = 0.3  # 防止 Attacker 选择产生震荡
+ATTACKER_KEEP_DIST_MARGIN_M = 0.3  # Prevent attacker-selection oscillation
 
-FALLEN_COST = 10.0  # 摔倒球员的距离惩罚值(米)
+FALLEN_COST = 10.0  # Distance penalty assigned to a fallen player (m)
 
 
 # ======================================================================
-# 开球 / 定位球策略
+# Kickoff and set-play strategy
 # ======================================================================
 
-# 开球
+# Kickoff
 KICKOFF_STAGE_M = 2.0
 KICKOFF_FRONT_MARGIN = 0.1
 KICKOFF_LATERAL_TOL = 0.35
 
-CENTER_LEAVE_DIST_M = 0.15 # 球离开中心点多少距离，认为球已经动了
+CENTER_LEAVE_DIST_M = 0.15 # Distance from center at which the ball counts as moved
 
-OPP_SET_WALL_DIST_M = 2.0 # 对方开球时，在多少距离之后阻挡
+OPP_SET_WALL_DIST_M = 2.0 # Blocking distance during an opponent kickoff
+
+# Opponent set plays: retreat threshold and field boundary margin (m).
+OPP_SET_PLAY_CLEARANCE_M = 1.5
+OPP_SET_PLAY_FIELD_MARGIN_M = 0.3
 
 
 # ======================================================================
-# 站位 / 避让
+# Positioning and avoidance
 # ======================================================================
 
 OPPONENT_RESTART_AVOID_M = 1.65
@@ -87,49 +92,49 @@ CIRCLE_MARGIN_M = 0.3
 
 
 # ======================================================================
-# 踢球目标几何
+# Kick-target geometry
 # ======================================================================
 
-GOAL_TARGET_DEPTH_M = 0.25              # 踢球目标点在球门内的深度 (m)
+GOAL_TARGET_DEPTH_M = 0.25              # Kick target depth inside the goal (m)
 
 # ======================================================================
-# 障碍物几何参数
+# Obstacle geometry
 # ======================================================================
 
-BALL_OBSTACLE_RADIUS = 0.5              # 球的障碍半径 (m)；用于避障计算
-OPPONENT_RADIUS = 0.55                  # 对手机器人半径 (m)
-TEAMMATE_RADIUS = 0.48                  # 队友机器人半径 (m)
-SAFETY_MARGIN = 0.22                    # 通用安全余量 (m)
+BALL_OBSTACLE_RADIUS = 0.5              # Ball obstacle radius (m)
+OPPONENT_RADIUS = 0.55                  # Opponent robot radius (m)
+TEAMMATE_RADIUS = 0.48                  # Teammate robot radius (m)
+SAFETY_MARGIN = 0.22                    # General safety margin (m)
 
-GOAL_DEPTH = 0.6                        # 球门深度 (m)；用于球门障碍建模
-POST_RADIUS = 0.18                      # 门柱半径 (m)
-NET_RADIUS = 0.20                       # 球网半径 (m)
-NET_STEP = 0.35                         # 球网离散化步长 (m)
+GOAL_DEPTH = 0.6                        # Goal depth used for obstacle modeling (m)
+POST_RADIUS = 0.18                      # Goal-post radius (m)
+NET_RADIUS = 0.20                       # Goal-net sample radius (m)
+NET_STEP = 0.35                         # Goal-net sampling interval (m)
 
-START_IGNORE = 0.0                      # 起点忽略半径 (m)；起点附近障碍不参与规划
-TARGET_IGNORE = 0.0                     # 终点忽略半径 (m)；终点附近障碍不参与规划
-
-# ======================================================================
-# 全局路径规划器 (A* Grid Planner)
-# ======================================================================
-
-USE_GLOBAL_PATH_PLANNER = True          # 是否启用全局规划器；False 时回退到局部 VFH
-GLOBAL_GRID_RESOLUTION_M = 0.35         # 栅格分辨率 (m/格)；越小路径越精细，但计算量越大
-GLOBAL_FIELD_MARGIN_M = 0.25            # 场地边界外扩余量 (m)；确保边界附近路径可行
-GLOBAL_OBSTACLE_MARGIN_M = 0.10         # 障碍物膨胀余量 (m)；在障碍半径上额外扩大多少
-GLOBAL_PATH_LOOKAHEAD_M = 0.9           # 从规划路径中提取前方多远的路径点 (m)
+START_IGNORE = 0.0                      # Ignore obstacles near the start (m)
+TARGET_IGNORE = 0.0                     # Ignore obstacles near the target (m)
 
 # ======================================================================
-# 局部路径规划器 (VFH Direction Scan)
+# Global path planner (A* grid planner)
 # ======================================================================
 
-PLAN_LOOKAHEAD = 1.2                    # 前方探测射线长度 (m)；规划器"看"的范围
-PLAN_CLEARANCE = 0.35                   # 最小安全余量 (m)；候选方向前方必须大于此值
-PLAN_STEP = math.radians(15)            # 候选方向扫描步长 (rad)；越小方向越精细
-PLAN_MAX_OFFSET = math.radians(100)     # 最大偏离目标方向的角度 (rad)；扫描范围 ± 该值
+USE_GLOBAL_PATH_PLANNER = True          # Fall back to local VFH when disabled
+GLOBAL_GRID_RESOLUTION_M = 0.35         # Grid cell size; smaller is finer (m)
+GLOBAL_FIELD_MARGIN_M = 0.25            # Extra field margin for boundary paths (m)
+GLOBAL_OBSTACLE_MARGIN_M = 0.10         # Additional obstacle inflation radius (m)
+GLOBAL_PATH_LOOKAHEAD_M = 0.9           # Lookahead distance along the path (m)
 
 # ======================================================================
-# 可视化
+# Local path planner (VFH direction scan)
+# ======================================================================
+
+PLAN_LOOKAHEAD = 1.2                    # Forward probe length (m)
+PLAN_CLEARANCE = 0.35                   # Minimum clearance for a candidate (m)
+PLAN_STEP = math.radians(15)            # Candidate direction scan step (rad)
+PLAN_MAX_OFFSET = math.radians(100)     # Maximum offset from target heading (rad)
+
+# ======================================================================
+# Visualization
 # ======================================================================
 
 KICK_TARGET_MARK_SIZE_M = 0.18

@@ -1,7 +1,9 @@
-"""框架运行时:30Hz 主循环、Context 构造、Player 实例管理。
+"""Framework runtime for the 30 Hz loop, Context construction, and Players.
 
-Context 数据来自注入的 ContextSource(Phase 2 的 ROS 数据源);未注入时(开发机 /
-单测)每帧构造空 Context。新鲜度过滤(陈旧→None)在此层统一做,见 docs/new_design.md §9.3。
+Context data comes from an injected ContextSource, normally the Phase 2 ROS
+source. Without one, development and test runs build an empty Context each
+frame. This layer uniformly replaces stale data with None; see section 9.3 of
+docs/new_design.md.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ _log = logging.getLogger(__name__)
 
 
 class ContextSource(Protocol):
-    """数据源协议:runtime 每帧从它取原始快照,自身不依赖具体 ROS 实现。"""
+    """Source protocol supplying raw snapshots without coupling runtime to ROS."""
 
     def start(self) -> None: ...
 
@@ -45,13 +47,14 @@ class ContextSource(Protocol):
 
 
 class SoccerRuntime:
-    """30Hz 控制循环 + Player 生命周期管理。
+    """Manage the 30 Hz control loop and Player lifecycle.
 
-    对用户不可见:用户只接触 SoccerAgent / Player / Context / play(),不需要
-    知道这个类的存在。
+    Users interact only with SoccerAgent, Player, Context, and ``play()`` and do
+    not need to know this class exists.
 
-    ``context_source`` 为 None 时(开发机 / 单测)每帧构造空 Context;传入 ROS
-    数据源时构造真实数据 + 新鲜度过滤后的 Context。
+    With ``context_source`` set to None, each frame receives an empty Context
+    for development or testing. A ROS source produces real, freshness-filtered
+    Context data.
     """
 
     def __init__(
@@ -74,7 +77,7 @@ class SoccerRuntime:
         self._tick_id = 0
 
     # ------------------------------------------------------------------
-    # 生命周期
+    # Lifecycle
     # ------------------------------------------------------------------
 
     def start(self) -> None:
@@ -108,7 +111,7 @@ class SoccerRuntime:
         _log.info("SoccerRuntime stopped")
 
     def _close_backends(self) -> None:
-        """关闭所有 player 的 SDK backend。"""
+        """Close every player's SDK backend."""
         for player in self._players:
             if player._backend is not None:
                 try:
@@ -119,7 +122,7 @@ class SoccerRuntime:
                     )
 
     # ------------------------------------------------------------------
-    # 主循环
+    # Main loop
     # ------------------------------------------------------------------
 
     def _loop(self) -> None:
@@ -130,7 +133,7 @@ class SoccerRuntime:
                 self._tick(started_at)
             except Exception as exc:
                 _log.exception("control loop tick failed: %s", exc)
-                # 异常时全员停车(直接调,不走 play 路径)
+                # Stop every player directly after an exception, bypassing play.
                 for p in self._players:
                     try:
                         p.stop()
@@ -149,22 +152,22 @@ class SoccerRuntime:
         for p in self._players:
             p.context = ctx
 
-        # 调试可视化:开一帧,画常驻世界(球/队友/对手),再让 play() 追加策略 marker
+        # Begin debug drawing with the world, then let play append strategy markers.
         from . import debugdraw
         debugdraw.begin_frame()
         self._draw_world(ctx)
 
-        # 调用用户 play();框架不强制其行为
+        # Invoke user play(); the framework does not prescribe its behavior.
         self._agent.play(ctx, self._players, self._store)
 
         debugdraw.flush()
 
-        # 每 ~2s 打一行 heartbeat,肉眼验证主循环 + 数据通路
+        # Log a heartbeat about every two seconds to confirm the loop and data path.
         if self._tick_id % 60 == 0:
             self._log_heartbeat(ctx, dt)
 
     def _draw_world(self, ctx: Context) -> None:
-        """常驻可视化:球场/球门(暗)、球(橙)、我方(红+编号+朝向)、对手(蓝+朝向)。"""
+        """Draw the field, ball, teammate headings, and opponents."""
         from . import debugdraw
         import math
 
@@ -174,8 +177,8 @@ class SoccerRuntime:
             debugdraw.point(
                 ctx.ball.x, ctx.ball.y, rgb=(1.0, 0.5, 0.0), scale=0.2, ns="ball",
             )
-        # 我方队员标记(颜色/形状随 kick 状态、标签带 chaser)由策略层 main.py 画,
-        # 因为 kick 状态在 player、chaser 在 play()。这里只画朝向 + 对手。
+        # main.py draws teammate shape and labels because kick state belongs to
+        # Player and roles belong to play(). Runtime only draws headings and opponents.
         for r in ctx.teammates.values():
             if r.pose is not None:
                 self._draw_facing(r.pose)
@@ -186,7 +189,7 @@ class SoccerRuntime:
                 self._draw_facing(r.pose)
 
     def _draw_facing(self, pose) -> None:
-        """机器人朝向:白色短箭头(0.4m),ns=facing。与黄色速度 heading 区分。"""
+        """Draw a 0.4 m white heading arrow, distinct from velocity headings."""
         from . import debugdraw
         import math
 
@@ -198,30 +201,30 @@ class SoccerRuntime:
         )
 
     def _draw_field(self, ctx: Context) -> None:
-        """静态场地:外边界、中线、中圈、两侧球门框。暗灰色。"""
+        """Draw field bounds, halfway line, center circle, and goals in gray."""
         from . import debugdraw
         import math
 
         f = ctx.field
         hl, hw = f.length / 2.0, f.width / 2.0
         gray = (0.5, 0.5, 0.5)
-        # 外边界
+        # Outer boundary.
         debugdraw.line(
             [(-hl, -hw), (hl, -hw), (hl, hw), (-hl, hw), (-hl, -hw)],
             rgb=gray, ns="field_bounds",
         )
-        # 中线
+        # Halfway line.
         debugdraw.line([(0.0, -hw), (0.0, hw)], rgb=gray, ns="field_midline")
-        # 中圈(多边形近似)
+        # Center circle approximated by a polygon.
         r = f.circle_radius
         circle = [
             (r * math.cos(a), r * math.sin(a))
             for a in [i * math.pi / 12 for i in range(25)]
         ]
         debugdraw.line(circle, rgb=gray, ns="field_circle")
-        # 两侧球门框(半个球门宽 × 进深 0.6)
+        # Goal frames using the published dimensions.
         gw = f.goal_width / 2.0
-        depth = 0.6
+        depth = f.goal_depth
         for sx in (-1.0, 1.0):
             fx = sx * hl
             bx = sx * (hl + depth)
@@ -246,7 +249,7 @@ class SoccerRuntime:
         )
 
     # ------------------------------------------------------------------
-    # Context 构造 + 新鲜度过滤
+    # Context construction and freshness filtering
     # ------------------------------------------------------------------
 
     def _build_context(self, now: float, dt: float) -> Context:
@@ -255,7 +258,10 @@ class SoccerRuntime:
             now=now,
             dt=dt,
             team_id=self._config.team_id,
-            field=ADULT_FIELD_DIMENSIONS,
+            # Older simulators do not publish field info. Also covers startup
+            # before the retained message arrives; valid topic data takes over
+            # on the next frame without blocking strategy execution.
+            field=snap.field if snap.field is not None else ADULT_FIELD_DIMENSIONS,
             game=self._fresh_game(snap.game, now),
             ball=self._fresh_ball(snap.ball, now),
             teammates={
@@ -283,7 +289,7 @@ class SoccerRuntime:
         return ball
 
     def _fresh_robot(self, robot: RobotState, now: float) -> RobotState:
-        """位姿陈旧则清成 None(robot 对象保留),见 doc §9.3。"""
+        """Retain the robot but clear a stale pose; see documentation section 9.3."""
         if (
             robot.pose is not None
             and now - robot.last_seen_at > self._config.robot_pose_max_age_sec

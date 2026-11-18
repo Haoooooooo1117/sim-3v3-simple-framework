@@ -1,18 +1,20 @@
-"""调试可视化汇聚层 —— 策略随手画,框架统一发 ROS MarkerArray。
+"""Debug drawing layer that publishes strategy visuals as ROS MarkerArray.
 
-用法(策略侧,零 ROS 依赖):
+Strategy-side usage without ROS dependencies:
     from .framework import debugdraw
     debugdraw.point(x, y, rgb=(1,0,0), ns="target")
     debugdraw.arrow(x0, y0, x1, y1, rgb=(0,1,0), ns="heading")
     debugdraw.line([(x0,y0),(x1,y1)], ns="path")
     debugdraw.text(x, y, "chaser", ns="label")
 
-框架侧:agent 在 ROS node 就绪后调 install(node);runtime 每帧 begin_frame()→...→flush()。
-没装(开发机无 ROS / 未 install)时所有绘制调用是 no-op,可安全在任意环境 import。
+The agent calls ``install(node)`` after the ROS node is ready. Runtime calls
+``begin_frame()``, draws, and then calls ``flush()`` each frame. Without an
+installation, all drawing calls are no-ops and this module is safe to import.
 
-坐标系:队伍视角场地系(与 context 一致)。Marker 的 frame_id 默认 "world";在
-Booster Studio / RViz 里把 Fixed Frame 设成同名即可看到。我们同时把球/机器人也画出来,
-所以即使没有外部 TF,这套 marker 自成一致的俯视图。
+Coordinates use the same team-relative field frame as Context. Marker frame_id
+defaults to "world"; set the Fixed Frame to that value in Booster Studio or
+RViz. Ball and robot markers use the same frame, providing a consistent top-down
+view even without external TF data.
 """
 
 from __future__ import annotations
@@ -21,15 +23,15 @@ import logging
 
 _log = logging.getLogger(__name__)
 
-_FRAME = "world"          # Marker frame_id;Studio 的 Fixed Frame 设成同名
+_FRAME = "world"          # Match this value in Studio's Fixed Frame setting.
 _TOPIC = "/soccer/debug"
-_Z = 0.05                 # 画在地面略上方
+_Z = 0.05                 # Draw slightly above the ground plane.
 
-_impl = None              # 由 install() 注入;None = no-op
+_impl = None              # Injected by install(); None means no-op.
 
 
 def install(node) -> None:
-    """框架注入真实 ROS 发布器(Docker-only)。开发机不调 → 全程 no-op。"""
+    """Inject the real Docker-only ROS publisher; otherwise remain a no-op."""
     global _impl
     try:
         _impl = _RosDrawSink(node)
@@ -65,7 +67,7 @@ def arrow(x0, y0, x1, y1, rgb=(1.0, 1.0, 0.0), ns="arrow") -> None:
 
 
 def line(points, rgb=(0.5, 0.5, 0.5), ns="line") -> None:
-    """points: [(x,y), ...] 折线。"""
+    """Draw a polyline through ``points`` in ``[(x, y), ...]`` form."""
     if _impl is not None and len(points) >= 2:
         _impl.line(points, rgb, ns)
 
@@ -76,10 +78,10 @@ def text(x, y, s, rgb=(1.0, 1.0, 1.0), ns="text") -> None:
 
 
 class _RosDrawSink:
-    """真实实现:累积本帧 marker,flush 时发一个 MarkerArray(先 DELETEALL 清旧)。"""
+    """Accumulate frame markers and flush them after first deleting old ones."""
 
     def __init__(self, node) -> None:
-        # 延迟 import,避免开发机无 ROS 时污染
+        # Delay ROS imports so development environments remain unaffected.
         from visualization_msgs.msg import MarkerArray
 
         self._node = node
@@ -101,7 +103,7 @@ class _RosDrawSink:
         arr.markers.extend(self._markers)
         self._pub.publish(arr)
 
-    # -- 各图元 --
+    # -- Primitives --
 
     def _new(self, ns, mtype):
         from visualization_msgs.msg import Marker
@@ -149,9 +151,9 @@ class _RosDrawSink:
             Point(x=float(x0), y=float(y0), z=_Z),
             Point(x=float(x1), y=float(y1), z=_Z),
         ]
-        m.scale.x = 0.03   # 杆径
-        m.scale.y = 0.08   # 箭头宽
-        m.scale.z = 0.12   # 箭头长
+        m.scale.x = 0.03   # Shaft diameter
+        m.scale.y = 0.08   # Arrow width
+        m.scale.z = 0.12   # Arrowhead length
         self._rgba(m, rgb)
         self._markers.append(m)
 
@@ -161,7 +163,7 @@ class _RosDrawSink:
 
         m = self._new(ns, Marker.LINE_STRIP)
         m.points = [Point(x=float(px), y=float(py), z=_Z) for px, py in points]
-        m.scale.x = 0.02   # 线宽
+        m.scale.x = 0.02   # Line width
         self._rgba(m, rgb)
         self._markers.append(m)
 
@@ -170,7 +172,7 @@ class _RosDrawSink:
 
         m = self._new(ns, Marker.TEXT_VIEW_FACING)
         m.pose.position.x, m.pose.position.y, m.pose.position.z = float(x), float(y), 0.3
-        m.scale.z = 0.25   # 字高
+        m.scale.z = 0.25   # Text height
         self._rgba(m, rgb)
         m.text = str(s)
         self._markers.append(m)
